@@ -10,6 +10,7 @@ find_package(
 
 find_package(yaml-cpp REQUIRED)
 find_package(spdlog REQUIRED)
+find_package(jemalloc REQUIRED)
 
 
 include_directories(${Boost_INCLUDE_DIRS})

@@ -22,6 +22,7 @@ target_link_libraries(
     Boost::program_options
     spdlog::spdlog
     yaml-cpp::yaml-cpp
+    jemalloc::jemalloc
 )
 
 add_executable(lb_app src/main.cpp)

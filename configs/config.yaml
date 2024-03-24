@@ -1,0 +1,6 @@
+logging:
+  file:
+    name: logs.txt
+    level: debug
+  console:
+    level: debug
