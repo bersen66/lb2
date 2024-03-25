@@ -11,7 +11,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lb2)
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_BINARY_DIR})
 
 include(cmake/install_dependencies.cmake)
-
+# App library
 file(GLOB lb2_sources src/lb/*.cpp)
 add_library(lb2 SHARED ${lb2_sources})
 target_include_directories(lb2 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -25,5 +25,12 @@ target_link_libraries(
     jemalloc::jemalloc
 )
 
+# Main app
 add_executable(lb_app src/main.cpp)
 target_link_libraries(lb_app lb2)
+
+# Setting up unit-tests
+enable_testing()
+file(GLOB unit_tests_sources tests/*.cpp)
+add_executable(lb_tests ${unit_tests_sources})
+target_link_libraries(lb_tests PUBLIC lb2 GTest::gtest_main)
