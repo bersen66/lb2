@@ -225,10 +225,11 @@ int run(int argc, char** argv)
         app.Start();
     } catch (const std::exception& exc) {
         CRITICAL("{}", exc.what());
+        CRITICAL("Exit code: {}", EXIT_FAILURE);
         return EXIT_FAILURE;
     }
 
-    INFO("Exiting");
+    INFO("Exit code: {}", EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
 
