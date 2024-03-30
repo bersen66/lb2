@@ -43,7 +43,9 @@ add_dependencies(lb_app copy_configs)
 
 # Setting up unit-tests
 enable_testing()
+include(GoogleTest)
 file(GLOB unit_tests_sources tests/*.cpp)
 add_executable(lb_tests ${unit_tests_sources})
 target_link_libraries(lb_tests PUBLIC lb2 GTest::gtest_main)
 add_dependencies(lb_tests copy_configs)
+gtest_discover_tests(lb_tests)
