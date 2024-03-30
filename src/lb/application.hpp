@@ -1,6 +1,6 @@
 #pragma once
 
-#include <boost/thread.hpp>
+#include <boost/asio.hpp>
 #include <yaml-cpp/yaml.h>
 
 namespace lb {
@@ -21,13 +21,15 @@ public:
     void Start();
 
     void ConfigureThreadPool(const YAML::Node& config);
+
+    void Terminate();
 private:
     friend int run(int argc, char** argv);
     Application();
     void LoadConfig(const std::string& config_path);
 private:
     YAML::Node config;
-    boost::thread_group thread_pool;
+    boost::asio::io_context io_context;
 };
 
 int run(int argc, char** argv);

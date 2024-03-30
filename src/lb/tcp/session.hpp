@@ -3,8 +3,6 @@
 #include <memory>
 #include <boost/asio.hpp>
 
-namespace spdlog {class logger;}
-
 namespace lb {
 
 namespace tcp {
@@ -45,7 +43,6 @@ private:
     boost::asio::ip::tcp::socket server_socket;
     std::string client_buffer;
     std::string server_buffer;
-    std::shared_ptr<spdlog::logger> logger;
     IdType id;
 };
 

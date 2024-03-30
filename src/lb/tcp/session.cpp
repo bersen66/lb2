@@ -1,6 +1,6 @@
 #include <lb/tcp/session.hpp>
 
-#include <spdlog/spdlog.h>
+#include <lb/logging.hpp>
 
 #include <atomic>
 
@@ -13,8 +13,7 @@ Session::Session(boost::asio::ip::tcp::socket client,
     , server_socket(std::move(server))
     , id(generateId())
 {
-    logger = spdlog::get("multi-sink");
-    SPDLOG_LOGGER_DEBUG(logger, "Session id:{} constructed", id);
+    DEBUG("Session id:{} constructed", id);
 }
 
 void Session::Run()
@@ -39,11 +38,11 @@ void Session::ClientRead()
 void Session::HandleClientRead(boost::system::error_code ec, std::size_t length)
 {
     if (ec) {
-        SPDLOG_LOGGER_ERROR(logger, "sid:{} error:{}", ec.message());
+        ERROR("sid:{} error:{}", ec.message());
         Cancel();
         return;
     }
-    SPDLOG_LOGGER_DEBUG(logger, "sid:{} client-msg:{}", client_buffer);
+    DEBUG("sid:{} client-msg:{}", client_buffer);
     SendToServer();
 }
 
@@ -61,7 +60,7 @@ void Session::SendToServer()
 void Session::HandleSendToServer(boost::system::error_code ec, std::size_t length)
 {
     if (ec) {
-        SPDLOG_LOGGER_ERROR(logger, "sid:{} error:{}", ec.message());
+        ERROR("sid:{} error:{}", ec.message());
         Cancel();
         return;
     }
@@ -84,11 +83,11 @@ void Session::ServerRead()
 void Session::HandleServerRead(boost::system::error_code ec, std::size_t length)
 {
     if (ec) {
-        SPDLOG_LOGGER_ERROR(logger, "sid:{} error:{}", ec.message());
+        ERROR("sid:{} error:{}", ec.message());
         Cancel();
         return;
     }
-    SPDLOG_LOGGER_DEBUG(logger, "sid:{} client-msg:{}", client_buffer);
+    DEBUG("sid:{} client-msg:{}", client_buffer);
     SendToClient();
 }
 
@@ -103,7 +102,7 @@ void Session::SendToClient()
 
 void Session::HandleSendToClient(boost::system::error_code ec, std::size_t length) {
     if (ec) {
-        SPDLOG_LOGGER_ERROR(logger, "sid:{} error:{}", ec.message());
+        ERROR("sid:{} error:{}", ec.message());
         Cancel();
     }
     server_buffer.clear();
@@ -113,14 +112,14 @@ void Session::HandleSendToClient(boost::system::error_code ec, std::size_t lengt
  // Cancel all unfinished async operartions on boths sockets
 void Session::Cancel()
 {
-    SPDLOG_LOGGER_DEBUG(logger, "sid:{} cancel ", id);
+    DEBUG("sid:{} cancel ", id);
     client_socket.cancel();
     server_socket.cancel();
 }
 
 Session::~Session()
 {
-    SPDLOG_LOGGER_DEBUG(logger, "sid:{} destroyed ", id);
+    DEBUG("sid:{} destroyed ", id);
 }
 
 Session::IdType Session::generateId()

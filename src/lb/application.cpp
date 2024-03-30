@@ -5,9 +5,10 @@
 
 #include <boost/program_options.hpp>
 
-#include <spdlog/spdlog.h>
+#include <lb/logging.hpp>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
+
 
 #include <lb/tcp/acceptor.hpp>
 #include <lb/application.hpp>
@@ -103,9 +104,11 @@ void ConfigureLogging(const YAML::Node& config)
         spdlog::level::level_enum lvl = spdlog::level::from_str(file_node["level"].as<std::string>());
         file_sink->set_level(lvl);
 
+        std::string pattern = "[%H:%M:%S][%^%l%$][%s:%#] %v";
         if (file_node["pattern"].IsDefined()) {
-            file_sink->set_pattern(file_node["pattern"].as<std::string>());
+            pattern = file_node["pattern"].as<std::string>();
         }
+        file_sink->set_pattern(pattern);
         sinks.push_back(file_sink);
     }
 
@@ -153,16 +156,35 @@ void PrintPrettyUsageMessage()
     colored_description.print(std::cout, 20);
 }
 
+void HandleInterruptSignal(const boost::system::error_code& ec, int signum)
+{
+    if (ec) {
+        CRITICAL("{}", ec.message());
+    }
+    WARN("Caught signal: {}", signum);
+    INFO("Starting shutdown");
+    ::lb::Application::GetInstance().Terminate();
+    spdlog::get("multi-sink")->flush();
+    return;
+}
+
 void Application::Start()
 {
-    SPDLOG_LOGGER_INFO(spdlog::get("multi-sink"), "Starting app");
-    boost::asio::io_context io_context;
+    INFO("Starting app");
+
+    boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
+    signals.async_wait(HandleInterruptSignal);
 
     tcp::Acceptor acceptor(io_context, ConfigFromYAML(Config()));
     acceptor.Run();
 
     io_context.run();
-    SPDLOG_LOGGER_INFO(spdlog::get("multi-sink"), "Finishing app");
+    INFO("Finishing app");
+}
+
+void Application::Terminate()
+{
+    io_context.stop();
 }
 
 int run(int argc, char** argv)
@@ -197,14 +219,14 @@ int run(int argc, char** argv)
         app.LoadConfig(config_path);
         spdlog::info("Start configuring logs");
         ConfigureLogging(app.Config());
-        spdlog::info("Finish configuring logs");
+        INFO("Logging configured");
         app.Start();
     } catch (const std::exception& exc) {
-        spdlog::critical("{}", exc.what());
+        CRITICAL("{}", exc.what());
         return EXIT_FAILURE;
     }
 
-    spdlog::error("Exiting");
+    INFO("Exiting");
     return EXIT_SUCCESS;
 }
 

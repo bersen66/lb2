@@ -2,8 +2,6 @@
 
 #include <boost/asio.hpp>
 
-namespace spdlog {class logger;}
-
 namespace lb {
 
 namespace tcp {
@@ -33,7 +31,6 @@ private:
 private:
     boost::asio::io_context& io_context;
     boost::asio::ip::tcp::acceptor acceptor;
-    std::shared_ptr<spdlog::logger> logger;
 };
 
 } // namespace tcp

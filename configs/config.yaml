@@ -1,10 +1,10 @@
 logging:
   file:
-    name: logs.txt
+    name: logs/logs.txt
     level: debug
   console:
     level: debug
 
 acceptor:
   port: 9090
-  ip_version: 4
+  ip_version: 6
