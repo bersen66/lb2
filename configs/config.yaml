@@ -4,3 +4,7 @@ logging:
     level: debug
   console:
     level: debug
+
+acceptor:
+  port: 9090
+  ip_version: 4

@@ -1,7 +1,6 @@
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
-#include <unordered_map>
 #include <memory>
 
 #include <boost/program_options.hpp>
@@ -10,6 +9,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
+#include <lb/tcp/acceptor.hpp>
 #include <lb/application.hpp>
 
 
@@ -28,7 +28,6 @@ const YAML::Node& Application::Config() const
     return config;
 }
 
-
 Application::Application()
 {}
 
@@ -37,10 +36,16 @@ void Application::LoadConfig(const std::string& config_file)
     config = std::move(YAML::LoadFile(config_file));
 }
 
-void Application::Start()
+void Application::ConfigureThreadPool(const YAML::Node& config)
 {
-    spdlog::get("multi-sink")->info("Starting app");
-    spdlog::get("multi-sink")->info("Finishing app");
+    if (!config["thread_pool"].IsDefined()) {
+        throw std::runtime_error("missed thread-pool configuration");
+    }
+    const YAML::Node& tp_config = config["thread_pool"];
+    if (!tp_config.IsMap()) {
+        throw std::runtime_error("thread_pool configuration must be a map");
+    }
+
 }
 
 void ConfigureLogging(const YAML::Node& config)
@@ -66,9 +71,12 @@ void ConfigureLogging(const YAML::Node& config)
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
         spdlog::level::level_enum lvl = spdlog::level::from_str(console_node["level"].as<std::string>());
         console_sink->set_level(lvl);
+
+        std::string pattern = "[%H:%M:%S][%^%l%$][%s:%#] %v";
         if (console_node["pattern"].IsDefined()) {
-            console_sink->set_pattern(console_node["pattern"].as<std::string>());
+            pattern = console_node["pattern"].as<std::string>();
         }
+        console_sink->set_pattern(pattern);
         console_sink->set_color_mode(spdlog::color_mode::automatic);
 
         sinks.push_back(console_sink);
@@ -102,7 +110,34 @@ void ConfigureLogging(const YAML::Node& config)
     }
 
     auto logger = std::make_shared<spdlog::logger>("multi-sink", sinks.begin(), sinks.end());
+
     spdlog::register_logger(logger);
+}
+
+tcp::Acceptor::Configuration ConfigFromYAML(const YAML::Node& config)
+{
+    if (!config["acceptor"].IsDefined()) {
+        throw std::runtime_error("missed acceptor node!");
+    }
+
+    const YAML::Node& acceptor_node = config["acceptor"];
+    if (!acceptor_node.IsMap()) {
+        throw std::runtime_error("acceptor node must be a map");
+    }
+
+    bool useIpV6 = false;
+    if (!acceptor_node["ip_version"].IsDefined()) {
+        int version = acceptor_node["ip_version"].as<int>();
+        if (version != 4 || version != 6) {
+            throw std::runtime_error("Invalid ip_version " + version);
+        }
+        useIpV6 = (version == 6);
+    }
+
+    return tcp::Acceptor::Configuration{
+        .port=acceptor_node["port"].as<tcp::Acceptor::PortType>(),
+        .useIpV6=useIpV6
+    };
 }
 
 void PrintPrettyUsageMessage()
@@ -116,6 +151,18 @@ void PrintPrettyUsageMessage()
     ;
     // .clang-format on
     colored_description.print(std::cout, 20);
+}
+
+void Application::Start()
+{
+    SPDLOG_LOGGER_INFO(spdlog::get("multi-sink"), "Starting app");
+    boost::asio::io_context io_context;
+
+    tcp::Acceptor acceptor(io_context, ConfigFromYAML(Config()));
+    acceptor.Run();
+
+    io_context.run();
+    SPDLOG_LOGGER_INFO(spdlog::get("multi-sink"), "Finishing app");
 }
 
 int run(int argc, char** argv)
@@ -151,8 +198,6 @@ int run(int argc, char** argv)
         spdlog::info("Start configuring logs");
         ConfigureLogging(app.Config());
         spdlog::info("Finish configuring logs");
-
-        spdlog::get("multi-sink")->info("Before start");
         app.Start();
     } catch (const std::exception& exc) {
         spdlog::critical("{}", exc.what());
