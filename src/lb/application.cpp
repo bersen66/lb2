@@ -4,6 +4,7 @@
 #include <memory>
 
 #include <boost/program_options.hpp>
+#include <boost/thread.hpp>
 
 #include <lb/logging.hpp>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -30,6 +31,7 @@ const YAML::Node& Application::Config() const
 }
 
 Application::Application()
+    : io_context(boost::thread::hardware_concurrency())
 {}
 
 void Application::LoadConfig(const std::string& config_file)
