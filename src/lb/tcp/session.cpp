@@ -1,5 +1,5 @@
 #include <lb/tcp/session.hpp>
-
+#include <iostream>
 #include <lb/logging.hpp>
 
 #include <atomic>
@@ -38,11 +38,11 @@ void Session::ClientRead()
 void Session::HandleClientRead(boost::system::error_code ec, std::size_t length)
 {
     if (ec) {
-        ERROR("sid:{} error:{}", ec.message());
+        ERROR("sid:{} {}", id, ec.message());
         Cancel();
         return;
     }
-    DEBUG("sid:{} client-msg:{}", client_buffer);
+    DEBUG("sid:{} client-msg:{}", id, client_buffer);
     SendToServer();
 }
 
@@ -60,7 +60,7 @@ void Session::SendToServer()
 void Session::HandleSendToServer(boost::system::error_code ec, std::size_t length)
 {
     if (ec) {
-        ERROR("sid:{} error:{}", ec.message());
+        ERROR("sid:{} {}", id, ec.message());
         Cancel();
         return;
     }
@@ -83,11 +83,11 @@ void Session::ServerRead()
 void Session::HandleServerRead(boost::system::error_code ec, std::size_t length)
 {
     if (ec) {
-        ERROR("sid:{} error:{}", ec.message());
+        ERROR("sid:{} {}", id, ec.message());
         Cancel();
         return;
     }
-    DEBUG("sid:{} client-msg:{}", client_buffer);
+    DEBUG("sid:{} server-msg:{}", id, server_buffer);
     SendToClient();
 }
 
@@ -102,7 +102,7 @@ void Session::SendToClient()
 
 void Session::HandleSendToClient(boost::system::error_code ec, std::size_t length) {
     if (ec) {
-        ERROR("sid:{} error:{}", ec.message());
+        ERROR("sid:{} {}", id, ec.message());
         Cancel();
     }
     server_buffer.clear();
@@ -112,21 +112,25 @@ void Session::HandleSendToClient(boost::system::error_code ec, std::size_t lengt
  // Cancel all unfinished async operartions on boths sockets
 void Session::Cancel()
 {
-    DEBUG("sid:{} cancel ", id);
-    client_socket.cancel();
-    server_socket.cancel();
+    client_socket.close();
+    server_socket.close();
 }
 
 Session::~Session()
 {
-    DEBUG("sid:{} destroyed ", id);
+    Cancel();
 }
 
 Session::IdType Session::generateId()
 {
     static std::atomic<IdType> id = 0;
-    Session::IdType result = id+1;
+    Session::IdType result = id.fetch_add(1, std::memory_order_relaxed);
     return result;
+}
+
+const Session::IdType& Session::Id() const
+{
+    return id;
 }
 
 } // namespace tcp

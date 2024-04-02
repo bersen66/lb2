@@ -3,6 +3,8 @@
 #include <boost/asio.hpp>
 #include <yaml-cpp/yaml.h>
 
+#include <lb/tcp/connector.hpp>
+
 namespace lb {
 
 
@@ -22,6 +24,8 @@ public:
 
     void ConfigureThreadPool(const YAML::Node& config);
 
+    tcp::Connector& Connector();
+
     void Terminate();
 private:
     friend int run(int argc, char** argv);
@@ -30,6 +34,7 @@ private:
 private:
     YAML::Node config;
     boost::asio::io_context io_context;
+    tcp::Connector connector;
 };
 
 int run(int argc, char** argv);

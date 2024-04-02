@@ -10,9 +10,10 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
-
-#include <lb/tcp/acceptor.hpp>
+#include <lb/tcp/connector.hpp>
 #include <lb/application.hpp>
+#include <lb/tcp/acceptor.hpp>
+
 
 
 namespace opt=boost::program_options;
@@ -31,8 +32,9 @@ const YAML::Node& Application::Config() const
 }
 
 Application::Application()
-    : io_context(boost::thread::hardware_concurrency())
-{}
+    : connector(io_context)
+{
+}
 
 void Application::LoadConfig(const std::string& config_file)
 {
@@ -74,6 +76,7 @@ void ConfigureLogging(const YAML::Node& config)
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
         spdlog::level::level_enum lvl = spdlog::level::from_str(console_node["level"].as<std::string>());
         console_sink->set_level(lvl);
+        console_sink->should_log(lvl);
 
         std::string pattern = "[%H:%M:%S][%^%l%$][%s:%#] %v";
         if (console_node["pattern"].IsDefined()) {
@@ -104,6 +107,7 @@ void ConfigureLogging(const YAML::Node& config)
         auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(name, truncate);
 
         spdlog::level::level_enum lvl = spdlog::level::from_str(file_node["level"].as<std::string>());
+        file_sink->should_log(lvl);
         file_sink->set_level(lvl);
 
         std::string pattern = "[%H:%M:%S][%^%l%$][%s:%#] %v";
@@ -115,7 +119,7 @@ void ConfigureLogging(const YAML::Node& config)
     }
 
     auto logger = std::make_shared<spdlog::logger>("multi-sink", sinks.begin(), sinks.end());
-
+    logger->set_level(spdlog::level::trace);
     spdlog::register_logger(logger);
 }
 
@@ -174,11 +178,14 @@ void Application::Start()
 {
     INFO("Starting app");
 
-    boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
-    signals.async_wait(HandleInterruptSignal);
-
     tcp::Acceptor acceptor(io_context, ConfigFromYAML(Config()));
     acceptor.Run();
+
+    boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
+    signals.async_wait([&acceptor](const boost::system::error_code& ec, int signum) {
+        acceptor.Stop();
+        HandleInterruptSignal(ec, signum);
+    });
 
     io_context.run();
     INFO("Finishing app");
@@ -187,6 +194,11 @@ void Application::Start()
 void Application::Terminate()
 {
     io_context.stop();
+}
+
+tcp::Connector& Application::Connector()
+{
+    return connector;
 }
 
 int run(int argc, char** argv)
@@ -216,8 +228,8 @@ int run(int argc, char** argv)
         return EXIT_FAILURE;
     }
     std::string config_path = parsed_options["config"].as<std::string>();
+    Application& app = Application::GetInstance();
     try {
-        Application& app = Application::GetInstance();
         app.LoadConfig(config_path);
         spdlog::info("Start configuring logs");
         ConfigureLogging(app.Config());

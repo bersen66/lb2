@@ -23,7 +23,7 @@ public:
     // Cancel all unfinished async operartions on boths sockets
     void Cancel();
 
-    static IdType generateId();
+    const IdType& Id() const;
 private:
 
     // Client->Server communication callbacks-chain
@@ -37,7 +37,8 @@ private:
     void HandleServerRead(boost::system::error_code ec, std::size_t length);
     void SendToClient();
     void HandleSendToClient(boost::system::error_code ec, std::size_t length);
-
+private:
+    static IdType generateId();
 private:
     boost::asio::ip::tcp::socket client_socket;
     boost::asio::ip::tcp::socket server_socket;

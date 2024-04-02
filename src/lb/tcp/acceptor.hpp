@@ -23,6 +23,8 @@ public:
 
     void Run();
 
+    void Stop();
+
 private:
 
     // Acception callbacks
