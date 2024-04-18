@@ -1,9 +1,12 @@
 #pragma once
 
 #include <boost/asio.hpp>
+#include <boost/thread.hpp>
+
 #include <yaml-cpp/yaml.h>
 
 #include <lb/tcp/connector.hpp>
+#include <atomic>
 
 namespace lb {
 
@@ -22,21 +25,29 @@ public:
 
     void Start();
 
-    void ConfigureThreadPool(const YAML::Node& config);
-
     tcp::Connector& Connector();
 
     void Terminate();
+
+    void SetExitCode(int code);
+
+    int GetExitCode() const;
 private:
-    friend int run(int argc, char** argv);
+    friend void ConfigureApplication(Application& app, const std::string& config_path);
     Application();
     void LoadConfig(const std::string& config_path);
+    void RegisterConnector(tcp::Connector* connector);
 private:
     YAML::Node config;
     boost::asio::io_context io_context;
-    tcp::Connector connector;
+    boost::thread_group threads;
+    tcp::Connector* connector_ptr; // not owner
+    std::atomic<int> exit_code = EXIT_SUCCESS;
 };
 
+void ConfigureApplication(Application& app, const std::string& config_path);
+
 int run(int argc, char** argv);
+
 
 } // namespace lb

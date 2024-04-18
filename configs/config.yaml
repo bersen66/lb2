@@ -5,6 +5,19 @@ logging:
   console:
     level: debug
 
+thread_pool:
+  threads_number: auto
+
 acceptor:
   port: 9090
-  ip_version: 6
+  ip_version: 4
+
+load_balancing:
+  algorithm: round_robin
+  endpoints:
+    - ip: "127.0.0.1"
+      port: 8001
+    - ip: "127.0.0.2"
+      port: 8002
+    - ip: "127.0.0.3"
+      port: 8003

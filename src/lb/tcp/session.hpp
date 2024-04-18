@@ -2,14 +2,26 @@
 
 #include <memory>
 #include <boost/asio.hpp>
+#include <boost/beast.hpp>
+#include <boost/thread/mutex.hpp>
 
 namespace lb {
 
 namespace tcp {
 
-class Session final : public std::enable_shared_from_this<Session> {
+struct BasicSession {
+    virtual void Run() = 0;
+    virtual void Cancel() = 0;
+    virtual ~BasicSession() = default;
+};
+
+using SessionPtr = std::shared_ptr<BasicSession>;
+
+class Session final : public BasicSession,
+                      public std::enable_shared_from_this<Session> {
 public:
     using IdType = std::size_t;
+    static constexpr inline std::size_t BUFFER_SIZE = 4096;
 public:
     Session(boost::asio::ip::tcp::socket client,
             boost::asio::ip::tcp::socket server);
@@ -18,10 +30,10 @@ public:
     Session& operator=(const Session&) = delete;
     ~Session() noexcept;
 
-    void Run();
+    void Run() override;
 
     // Cancel all unfinished async operartions on boths sockets
-    void Cancel();
+    void Cancel() override;
 
     const IdType& Id() const;
 private:
@@ -42,12 +54,16 @@ private:
 private:
     boost::asio::ip::tcp::socket client_socket;
     boost::asio::ip::tcp::socket server_socket;
-    std::string client_buffer;
-    std::string server_buffer;
+    boost::asio::streambuf cb;
+    boost::asio::streambuf sb;
     IdType id;
+    boost::beast::http::request<boost::beast::http::string_body> cr;
+    boost::beast::http::response<boost::beast::http::string_body> sr;
+    boost::mutex mutex;
 };
 
 } // namespace tcp
+
 
 
 } // namespace lb

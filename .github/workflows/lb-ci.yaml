@@ -7,7 +7,7 @@ on:
     branches: [ "main", "ci", "dev" ]
 
 jobs:
-  build:
+  test-build:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,5 +24,14 @@ jobs:
       run: conan profile detect --force
 
     - name: Do build
-      run: bash lbbuild.sh
+      run: bash lbbuild.sh build Release
+
+
+  run-unit-tests:
+    runs-on: ubuntu-latest
+    needs: test-build
+    steps:
+    - uses: actions/checkout@v3
+    - name: Run unit tests
+      run: bash lbbuild.sh test
 

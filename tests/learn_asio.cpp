@@ -3,6 +3,7 @@
 // #define BOOST_ASIO_ENABLE_HANDLER_TRACKING
 #include <boost/asio.hpp>
 #include <type_traits>
+#include <memory>
 
 
 #if 1

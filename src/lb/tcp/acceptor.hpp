@@ -21,6 +21,11 @@ public:
 
     Acceptor(boost::asio::io_context& io_ctx, const Configuration& config);
 
+    Acceptor(const Acceptor&) = delete;
+    Acceptor& operator=(const Acceptor&) = delete;
+    Acceptor(Acceptor&&) = delete;
+    Acceptor& operator=(Acceptor&&) = delete;
+
     void Run();
 
     void Stop();

@@ -32,7 +32,6 @@ const YAML::Node& Application::Config() const
 }
 
 Application::Application()
-    : connector(io_context)
 {
 }
 
@@ -41,27 +40,15 @@ void Application::LoadConfig(const std::string& config_file)
     config = std::move(YAML::LoadFile(config_file));
 }
 
-void Application::ConfigureThreadPool(const YAML::Node& config)
-{
-    if (!config["thread_pool"].IsDefined()) {
-        throw std::runtime_error("missed thread-pool configuration");
-    }
-    const YAML::Node& tp_config = config["thread_pool"];
-    if (!tp_config.IsMap()) {
-        throw std::runtime_error("thread_pool configuration must be a map");
-    }
-
-}
-
 void ConfigureLogging(const YAML::Node& config)
 {
     if (!config["logging"].IsDefined()) {
-        throw std::runtime_error("missed logging node!");
+        EXCEPTION("missed logging node!");
     }
 
     const YAML::Node& logging_node = config["logging"];
     if (!logging_node.IsMap()) {
-        throw std::runtime_error("logging field must be a map!");
+        STACKTRACE("logging field must be a map!");
     }
 
     std::vector<spdlog::sink_ptr> sinks;
@@ -70,7 +57,7 @@ void ConfigureLogging(const YAML::Node& config)
     if (logging_node["console"].IsDefined()) {
         const YAML::Node& console_node = logging_node["console"];
         if (!console_node.IsMap()) {
-            throw std::runtime_error("console field must be a map");
+            STACKTRACE("console field must be a map");
         }
 
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
@@ -78,7 +65,7 @@ void ConfigureLogging(const YAML::Node& config)
         console_sink->set_level(lvl);
         console_sink->should_log(lvl);
 
-        std::string pattern = "[%H:%M:%S][%^%l%$][%s:%#] %v";
+        std::string pattern = "[%H:%M:%S][%t][%^%l%$][%s:%#] %v";
         if (console_node["pattern"].IsDefined()) {
             pattern = console_node["pattern"].as<std::string>();
         }
@@ -92,7 +79,7 @@ void ConfigureLogging(const YAML::Node& config)
     if (logging_node["file"].IsDefined()) {
         const YAML::Node& file_node = logging_node["file"];
         if (!file_node.IsMap()) {
-            throw std::runtime_error("file field must be a map");
+            STACKTRACE("file field must be a map");
         }
 
         std::string name = "logs.txt";
@@ -110,7 +97,7 @@ void ConfigureLogging(const YAML::Node& config)
         file_sink->should_log(lvl);
         file_sink->set_level(lvl);
 
-        std::string pattern = "[%H:%M:%S][%^%l%$][%s:%#] %v";
+        std::string pattern = "[%H:%M:%S][%t][%^%l%$][%s:%#] %v";
         if (file_node["pattern"].IsDefined()) {
             pattern = file_node["pattern"].as<std::string>();
         }
@@ -123,22 +110,48 @@ void ConfigureLogging(const YAML::Node& config)
     spdlog::register_logger(logger);
 }
 
+std::size_t ConfigureThreadPool(const YAML::Node& config)
+{
+    std::size_t threads_num = boost::thread::hardware_concurrency();
+    DEBUG("threads_num = {}", threads_num);
+    threads_num += (threads_num == 0);
+
+    if (config["thread_pool"].IsDefined()) {
+        const YAML::Node& tp_config = config["thread_pool"];
+        if (!tp_config.IsMap()) {
+            EXCEPTION("thread_pool configuration must be a map");
+        }
+
+        if (tp_config["threads_number"].as<std::string>() == "auto") {
+            DEBUG("Selected automatically threads_num={}", threads_num);
+            return threads_num;
+        }
+
+        if (tp_config["threads_number"].IsScalar()) {
+            threads_num = tp_config["threads_number"].as<std::size_t>();
+            DEBUG("Selected explicitly threads_num={}", threads_num);
+        }
+    }
+
+    return threads_num;
+}
+
 tcp::Acceptor::Configuration ConfigFromYAML(const YAML::Node& config)
 {
     if (!config["acceptor"].IsDefined()) {
-        throw std::runtime_error("missed acceptor node!");
+        EXCEPTION("missed acceptor node!");
     }
 
     const YAML::Node& acceptor_node = config["acceptor"];
     if (!acceptor_node.IsMap()) {
-        throw std::runtime_error("acceptor node must be a map");
+        EXCEPTION("acceptor node must be a map");
     }
 
     bool useIpV6 = false;
     if (!acceptor_node["ip_version"].IsDefined()) {
         int version = acceptor_node["ip_version"].as<int>();
         if (version != 4 || version != 6) {
-            throw std::runtime_error("Invalid ip_version " + version);
+            EXCEPTION("Invalid ip_version {}", version);
         }
         useIpV6 = (version == 6);
     }
@@ -164,14 +177,53 @@ void PrintPrettyUsageMessage()
 
 void HandleInterruptSignal(const boost::system::error_code& ec, int signum)
 {
-    if (ec) {
-        CRITICAL("{}", ec.message());
+    try {
+        if (ec) {
+            CRITICAL("{}", ec.message());
+        }
+        WARN("Caught signal: {}", signum);
+        INFO("Starting shutdown");
+        ::lb::Application::GetInstance().Terminate();
+        spdlog::get("multi-sink")->flush();
+    } catch (const std::exception& exc) {
+        CRITICAL("Error at signal handler: {}", exc.what());
     }
-    WARN("Caught signal: {}", signum);
-    INFO("Starting shutdown");
-    ::lb::Application::GetInstance().Terminate();
-    spdlog::get("multi-sink")->flush();
+
     return;
+}
+
+void Application::RegisterConnector(tcp::Connector* connector)
+{
+    connector_ptr = connector;
+}
+
+void MakeThisThreadMaximumPriority()
+{
+    struct sched_param param;
+    param.sched_priority = sched_get_priority_max(SCHED_FIFO);
+    pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+}
+
+void ThreadRoutine(boost::asio::io_context& ioc, boost::barrier& barrier)
+{
+    barrier.wait();
+    MakeThisThreadMaximumPriority();
+
+    Application& app = Application::GetInstance();
+    try {
+        INFO("Starting io_context");
+        ioc.run();
+        INFO("Exiting io_context");
+    } catch (const std::exception& exc) {
+        CRITICAL("Exception at io_context: {}", exc.what());
+        app.SetExitCode(EXIT_FAILURE);
+        app.Terminate();
+    } catch (...) {
+        CRITICAL("Unknown exception at io_context");
+        app.Terminate();
+        app.SetExitCode(EXIT_FAILURE);
+    }
+    app.SetExitCode(EXIT_SUCCESS);
 }
 
 void Application::Start()
@@ -187,7 +239,20 @@ void Application::Start()
         HandleInterruptSignal(ec, signum);
     });
 
-    io_context.run();
+    lb::tcp::SelectorPtr selector = lb::tcp::DetectSelector(Config());
+    lb::tcp::Connector connector(io_context, selector);
+    RegisterConnector(&connector);
+
+    std::size_t threads_num = ConfigureThreadPool(Config());
+    INFO("Threads num={}", threads_num);
+    boost::barrier barrier(threads_num);
+    for (std::size_t i = 0; i + 1 < threads_num; ++i) {
+        threads.create_thread([this, &barrier](){
+            ThreadRoutine(io_context, barrier);
+        });
+    }
+    ThreadRoutine(io_context, barrier);
+    threads.join_all();
     INFO("Finishing app");
 }
 
@@ -198,7 +263,32 @@ void Application::Terminate()
 
 tcp::Connector& Application::Connector()
 {
-    return connector;
+    return *connector_ptr;
+}
+
+void Application::SetExitCode(int code)
+{
+    if (code != EXIT_SUCCESS) {
+        exit_code = code;
+    }
+}
+
+int Application::GetExitCode() const
+{
+    return exit_code;
+}
+
+void ConfigureApplication(lb::Application& app, const std::string& config_path) {
+    try {
+        app.LoadConfig(config_path);
+        spdlog::info("Start configuring logs");
+        ConfigureLogging(app.Config());
+        DEBUG("Logging configured");
+    } catch (const std::exception& exc) {
+        CRITICAL("Exception while configuring app: {}", exc.what());
+        CRITICAL("Exit code: {}", EXIT_FAILURE);
+        std::abort();
+    }
 }
 
 int run(int argc, char** argv)
@@ -229,20 +319,10 @@ int run(int argc, char** argv)
     }
     std::string config_path = parsed_options["config"].as<std::string>();
     Application& app = Application::GetInstance();
-    try {
-        app.LoadConfig(config_path);
-        spdlog::info("Start configuring logs");
-        ConfigureLogging(app.Config());
-        INFO("Logging configured");
-        app.Start();
-    } catch (const std::exception& exc) {
-        CRITICAL("{}", exc.what());
-        CRITICAL("Exit code: {}", EXIT_FAILURE);
-        return EXIT_FAILURE;
-    }
-
-    INFO("Exit code: {}", EXIT_SUCCESS);
-    return EXIT_SUCCESS;
+    ConfigureApplication(app, config_path);
+    app.Start();
+    INFO("Exit code: {}", app.GetExitCode());
+    return app.GetExitCode();
 }
 
 } // namespace lb

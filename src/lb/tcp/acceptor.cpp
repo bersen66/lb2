@@ -21,10 +21,9 @@ asio::ip::tcp::endpoint AcceptorEndpoint(Acceptor::PortType port, bool useIpV6)
 
 } // anonimous namespace
 
-
 Acceptor::Acceptor(asio::io_context& io_ctx, PortType port, bool useIpV6)
     : io_context(io_ctx)
-    , acceptor(io_ctx, AcceptorEndpoint(port, useIpV6))
+    , acceptor(boost::asio::make_strand(io_ctx), AcceptorEndpoint(port, useIpV6))
 {}
 
 Acceptor::Acceptor(asio::io_context& io_ctx, const Acceptor::Configuration& config)
@@ -40,6 +39,7 @@ void Acceptor::Run()
 void Acceptor::DoAccept()
 {
     acceptor.async_accept(
+        boost::asio::make_strand(io_context),
         [&](const sys::error_code& ec, asio::ip::tcp::socket client_socket){
             if (ec) {
                 ERROR("Acceptor error: {}", ec.message());
