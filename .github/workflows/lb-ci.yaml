@@ -1,0 +1,47 @@
+name: lb-ci
+
+on:
+  push:
+    branches: [ "main", "ci", "dev" ]
+  pull_request:
+    branches: [ "main", "ci", "dev" ]
+
+jobs:
+  test-build-no-conan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Do build
+        run: bash lbbuild.sh build Release
+
+  test-build:
+    runs-on:
+      - ubuntu-latest
+      - macos-latest
+      - centos-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Get Conan
+      id: conan
+      uses: turtlebrowser/get-conan@main
+
+    - name: Conan version
+      run: echo "${{ steps.conan.outputs.version }}"
+
+    - name: Conan detect profile
+      run: conan profile detect --force
+
+    - name: Do build
+      run: bash lbbuild.sh build Release
+
+
+  run-unit-tests:
+    runs-on: ubuntu-latest
+    needs: test-build
+    steps:
+    - uses: actions/checkout@v3
+    - name: Run unit tests
+      run: bash lbbuild.sh test Release
+
