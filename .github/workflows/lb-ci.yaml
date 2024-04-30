@@ -15,10 +15,7 @@ jobs:
         run: bash lbbuild.sh build Release
 
   test-build:
-    runs-on:
-      - ubuntu-latest
-      - macos-latest
-      - centos-latest
+    runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v3
