@@ -46,7 +46,7 @@ load_balancing:
   #     port: 8083
 
   # Example config of round robin
-  # algorithm: round_robibin
+  # algorithm: round_robin
   # endpoints:
   #   - ip: "127.0.0.1"
   #     port: 8081
