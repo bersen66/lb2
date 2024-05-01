@@ -59,10 +59,13 @@ target_link_libraries(
     yaml-cpp::yaml-cpp
     jemalloc::jemalloc
 )
-
 add_dependencies(lb_tests copy_configs)
 gtest_discover_tests(
     lb_tests
     WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
 )
 
+file(GLOB lb_benchmark_sources benchmarks/*.cpp)
+add_executable(lb_benchmark ${lb_benchmark_sources})
+target_link_libraries(lb_benchmark PUBLIC lb2 benchmark::benchmark_main)
+add_dependencies(lb_benchmark copy_configs)
