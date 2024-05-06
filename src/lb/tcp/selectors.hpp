@@ -75,7 +75,6 @@ SelectorPtr DetectSelector(const YAML::Node& config);
 class RoundRobinSelector final : public ISelector {
 public:
     using EndpointType = boost::asio::ip::tcp::endpoint;
-    using SocketType = boost::asio::ip::tcp::socket;
 public:
     void Configure(const YAML::Node& config) override;
 
@@ -182,8 +181,9 @@ private:
         }
     };
 
-    using PairingMap = boost::heap::pairing_heap<CounterWrapper, boost::heap::compare<ConnectionsCompare>>;
-    using HandleType = PairingMap::handle_type;
+    using PairingHeap = boost::heap::pairing_heap<CounterWrapper,
+                        boost::heap::compare<ConnectionsCompare>>;
+    using HandleType = PairingHeap::handle_type;
 
 private:
 
@@ -192,7 +192,7 @@ private:
 private:
     boost::recursive_mutex mutex_;
     std::unordered_map<std::string, HandleType> handle_pool_;
-    PairingMap backends_;
+    PairingHeap backends_;
 };
 
 
@@ -210,23 +210,24 @@ private:
 private:
     struct AverageTimeWrapper {
         lb::tcp::Backend backend;
-        double response_time_ewa = 0.0; // exponential weighted average for response time
+        double response_time_ema = 0.0;
         double alpha = 0.9;
     };
 
     struct ResponseTimeEMACompare{
         bool operator()(const AverageTimeWrapper& lhs, const AverageTimeWrapper& rhs) const
         {
-            return lhs.response_time_ewa > rhs.response_time_ewa;
+            return lhs.response_time_ema > rhs.response_time_ema;
         }
     };
 private:
-    using PairingMap = boost::heap::pairing_heap<AverageTimeWrapper, boost::heap::compare<ResponseTimeEMACompare>>;
-    using HandleType = PairingMap::handle_type;
+    using PairingHeap = boost::heap::pairing_heap<AverageTimeWrapper,
+                        boost::heap::compare<ResponseTimeEMACompare>>;
+    using HandleType = PairingHeap::handle_type;
 private:
     boost::mutex mutex_;
     std::unordered_map<std::string, HandleType> handle_pool_;
-    PairingMap backends_;
+    PairingHeap backends_;
 
 };
 

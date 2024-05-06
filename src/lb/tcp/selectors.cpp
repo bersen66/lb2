@@ -615,9 +615,9 @@ void LeastResponseTimeSelector::AddResponseTime(const Backend& backend, long res
     const std::string& str = backend.ToString();
     if (auto it = handle_pool_.find(str); it != handle_pool_.end()) {
         HandleType& handle = it->second;
-        double old_ewa = (*handle).response_time_ewa;
-        (*handle).response_time_ewa = (1 - (*handle).alpha) * old_ewa + (*handle).alpha * response_time;
-        if (old_ewa > (*handle).response_time_ewa) {
+        double old_ema = (*handle).response_time_ema;
+        (*handle).response_time_ema = (1 - (*handle).alpha) * old_ema + (*handle).alpha * response_time;
+        if (old_ema > (*handle).response_time_ema) {
             backends_.decrease(handle);
         } else {
             backends_.increase(handle);

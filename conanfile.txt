@@ -5,6 +5,7 @@ spdlog/1.13.0
 jemalloc/5.3.0
 ctre/3.8.1
 gtest/1.14.0
+benchmark/1.8.3
 
 [generators]
 CMakeDeps
