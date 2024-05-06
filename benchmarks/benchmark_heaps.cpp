@@ -18,6 +18,7 @@ struct ConnectionsCompare {
 
 static void BenchmarkFibbanaciHeap(benchmark::State& state)
 {
+
     for (auto _ : state)
     {
         boost::heap::fibonacci_heap<CounterWrapper, boost::heap::compare<ConnectionsCompare>> heap;
@@ -34,6 +35,7 @@ BENCHMARK(BenchmarkFibbanaciHeap);
 
 static void BenchmarkPairingHeap(benchmark::State& state)
 {
+
     for (auto _ : state)
     {
         boost::heap::pairing_heap<CounterWrapper, boost::heap::compare<ConnectionsCompare>> heap;
@@ -47,3 +49,39 @@ static void BenchmarkPairingHeap(benchmark::State& state)
 }
 
 BENCHMARK(BenchmarkPairingHeap);
+
+static void BenchmarkPairingHeapPush(benchmark::State& state)
+{
+    boost::heap::pairing_heap<int> heap;
+    for (auto _ : state)
+    {
+        for (int i = 0; i < state.range(0); ++i)
+        {
+            heap.push(i);
+        }
+        while (!heap.empty())
+        {
+            heap.pop();
+        }
+    }
+}
+
+BENCHMARK(BenchmarkPairingHeapPush)->Range(1<<0, 1<<16);
+
+static void BenchmarkFibonacciHeapPush(benchmark::State& state)
+{
+    boost::heap::fibonacci_heap<int> heap;
+    for (auto _ : state)
+    {
+        for (int i = 0; i < state.range(0); ++i)
+        {
+            heap.push(i);
+        }
+        while (!heap.empty())
+        {
+            heap.pop();
+        }
+    }
+}
+
+BENCHMARK(BenchmarkFibonacciHeapPush)->Range(1<<0, 1<<16);

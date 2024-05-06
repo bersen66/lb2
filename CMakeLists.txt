@@ -55,9 +55,6 @@ target_link_libraries(
     lb_tests PUBLIC
     lb2
     GTest::gtest
-    spdlog::spdlog
-    yaml-cpp::yaml-cpp
-    jemalloc::jemalloc
 )
 add_dependencies(lb_tests copy_configs)
 gtest_discover_tests(
