@@ -50,38 +50,56 @@ static void BenchmarkPairingHeap(benchmark::State& state)
 
 BENCHMARK(BenchmarkPairingHeap);
 
-static void BenchmarkPairingHeapPush(benchmark::State& state)
+
+
+template<typename HeapType>
+void RunIncreaseDecreaseOperations(HeapType& heap,
+                                   std::vector<typename HeapType::handle_type>& handles)
 {
-    boost::heap::pairing_heap<int> heap;
-    for (auto _ : state)
+    for (int i = 0; i < handles.size(); ++i)
     {
-        for (int i = 0; i < state.range(0); ++i)
-        {
-            heap.push(i);
-        }
-        while (!heap.empty())
-        {
-            heap.pop();
-        }
+        (*handles[i]).counter++;
+        heap.increase(handles[i]);
+        std::size_t num = (i + 10) % handles.size();
+        (*handles[num]).counter--;
+        heap.decrease(handles[num]);
     }
 }
 
-BENCHMARK(BenchmarkPairingHeapPush)->Range(1<<0, 1<<16);
-
-static void BenchmarkFibonacciHeapPush(benchmark::State& state)
+static void BenchmarkFibID(benchmark::State& state)
 {
-    boost::heap::fibonacci_heap<int> heap;
+    boost::heap::fibonacci_heap<CounterWrapper, boost::heap::compare<ConnectionsCompare>> heap;
+    using HandleType = boost::heap::fibonacci_heap<CounterWrapper, boost::heap::compare<ConnectionsCompare>>::handle_type;
+
+    std::vector<HandleType> handles;
+    for (std::size_t i = 0; i < 1000; ++i)
+    {
+        handles.push_back(heap.push(CounterWrapper{.b = nullptr, .counter = 0, .id = i}));
+    }
+
     for (auto _ : state)
     {
-        for (int i = 0; i < state.range(0); ++i)
-        {
-            heap.push(i);
-        }
-        while (!heap.empty())
-        {
-            heap.pop();
-        }
+        RunIncreaseDecreaseOperations(heap, handles);
     }
 }
 
-BENCHMARK(BenchmarkFibonacciHeapPush)->Range(1<<0, 1<<16);
+BENCHMARK(BenchmarkFibID);
+
+static void BenchmarkPairID(benchmark::State& state)
+{
+    boost::heap::pairing_heap<CounterWrapper, boost::heap::compare<ConnectionsCompare>> heap;
+    using HandleType = boost::heap::pairing_heap<CounterWrapper, boost::heap::compare<ConnectionsCompare>>::handle_type;
+
+    std::vector<HandleType> handles;
+    for (std::size_t i = 0; i < 1000; ++i)
+    {
+        handles.push_back(heap.push(CounterWrapper{.b = nullptr, .counter = 0, .id = i}));
+    }
+
+    for (auto _ : state)
+    {
+        RunIncreaseDecreaseOperations(heap, handles);
+    }
+}
+
+BENCHMARK(BenchmarkPairID);

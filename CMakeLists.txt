@@ -66,3 +66,18 @@ file(GLOB lb_benchmark_sources benchmarks/*.cpp)
 add_executable(lb_benchmark ${lb_benchmark_sources})
 target_link_libraries(lb_benchmark PUBLIC lb2 benchmark::benchmark_main)
 add_dependencies(lb_benchmark copy_configs)
+
+
+set(VERSION_MAJOR 1)
+set(VERSION_MINOR 0)
+set(VERSION_PATCH 0)
+# Установка путей к файлам
+set(CPACK_PACKAGE_NAME ${PROJECT_NAME})
+set(CPACK_PACKAGE_VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
+set(CPACK_PACKAGE_DESCRIPTION "My application")
+set(CPACK_PACKAGE_DESCRIPTION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/DESCRIPTION.txt")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "/usr/local")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Your Name <your.email@example.com>")
+set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://example.com")
+set(CPACK_DEBIAN_PACKAGE_PREDEPENDS "cmake")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "liblb (>= 1.0.0)")
