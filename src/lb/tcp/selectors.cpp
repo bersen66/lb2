@@ -378,8 +378,9 @@ SelectorType IpHashSelector::Type() const
 
 BackendCHTraits::HashType BackendCHTraits::GetHash(const Backend& backend)
 {
-    std::size_t res = std::hash<std::string>{}(backend.ToString());
-    DEBUG("Hash: {}", res);
+
+    static std::hash<std::string> hash{};
+    std::size_t res = hash(backend.ToString());
     return res;
 }
 

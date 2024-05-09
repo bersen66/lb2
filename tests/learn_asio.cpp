@@ -305,4 +305,173 @@ TEST(ConnServer, run)
     ConnectionServer::Serve(ioc, acceptor, ep);
     ioc.run();
 }
+
+#include <boost/beast.hpp>
+
+namespace ReverseProxy {
+
+class HttpSession : public std::enable_shared_from_this<HttpSession> {
+public:
+    using SocketType    = boost::asio::ip::tcp::socket;
+    using EndpointType  = boost::asio::ip::tcp::endpoint;
+    using TcpStream     = boost::beast::tcp_stream;
+    using BufferType    = boost::beast::flat_buffer;
+    using RequestType   = boost::beast::http::request<boost::beast::http::string_body>;
+    using ResponseType  = boost::beast::http::response<boost::beast::http::string_body>;
+public:
+    HttpSession(SocketType client, SocketType server)
+        : client_stream_(std::move(client)),
+          server_stream_(std::move(server))
+    {}
+
+    void Run() {
+        ClientRead();
+    }
+private:
+    void ClientRead() {
+        namespace http = boost::beast::http;
+
+        client_buffer_.clear();
+        server_buffer_.clear();
+        client_request_.clear();
+        server_response_.clear();
+
+        http::async_read(
+            client_stream_,
+            client_buffer_,
+            client_request_,
+            [self=shared_from_this()](boost::system::error_code ec, std::size_t length){
+                self->HandleClientRead(ec, length);
+            }
+        );
+    }
+
+    void HandleClientRead(boost::system::error_code ec, std::size_t length) {
+        if (ec) {
+            std::cout << ec.message() << std::endl;
+            return;
+        }
+
+        std::cout << "CLIENT MESSAGE: " << client_request_.target() << std::endl;
+        ServerWrite();
+    }
+
+
+    void ServerWrite() {
+        namespace http = boost::beast::http;
+
+        http::async_write(
+            server_stream_,
+            client_request_,
+            [self=shared_from_this()](boost::system::error_code ec, std::size_t length){
+                self->HandleServerWrite(ec, length);
+            }
+        );
+    }
+
+    void HandleServerWrite(boost::system::error_code ec, std::size_t length) {
+        if (ec) {
+            std::cout << ec.message() << std::endl;
+            return;
+        }
+        ServerRead();
+    }
+
+
+    void ServerRead() {
+        namespace http = boost::beast::http;
+        http::async_read(
+            server_stream_,
+            server_buffer_,
+            server_response_,
+            [self=shared_from_this()](boost::system::error_code ec, std::size_t length){
+                self->HandleServerRead(ec, length);
+            }
+        );
+    }
+
+    void HandleServerRead(boost::system::error_code ec, std::size_t length) {
+        if (ec) {
+            std::cout << ec.message() << std::endl;
+            return;
+        }
+
+        std::cout << "SERVER MESSAGE: " << server_response_ << std::endl;
+        ClientWrite();
+    }
+
+    void ClientWrite() {
+        namespace http = boost::beast::http;
+        http::async_write(
+            client_stream_,
+            server_response_,
+            [self=shared_from_this()](boost::system::error_code ec, std::size_t length){
+                self->HandleClientWrite(ec, length);
+            }
+        );
+    }
+
+    void HandleClientWrite(boost::system::error_code ec, std::size_t length) {
+        if (ec) {
+            std::cout << ec.message() << std::endl;
+            return;
+        }
+        ClientRead();
+    }
+private:
+    TcpStream client_stream_;
+    TcpStream server_stream_;
+    BufferType client_buffer_;
+    BufferType server_buffer_;
+    RequestType client_request_;
+    ResponseType server_response_;
+};
+
+
+void HandleAccept(boost::asio::io_context& ioc,
+                  std::shared_ptr<boost::asio::ip::tcp::socket> client_socket,
+                  boost::asio::ip::tcp::endpoint server_endpoint)
+{
+    auto server_socket = std::make_shared<boost::asio::ip::tcp::socket>(ioc);
+    server_socket->async_connect(server_endpoint, [server_socket, client_socket](const boost::system::error_code& error){
+        if (error) {
+            std::cout << __LINE__ << " Error: " << error.message() << std::endl;
+            return;
+        }
+        auto connection = std::make_shared<HttpSession>(std::move(*client_socket), std::move(*server_socket));
+        connection->Run();
+    });
+}
+
+void Serve(boost::asio::io_context& executor,
+           boost::asio::ip::tcp::acceptor& acceptor,
+           const boost::asio::ip::tcp::endpoint& endpoint)
+{
+    acceptor.async_accept(
+        [&] (boost::system::error_code ec, boost::asio::ip::tcp::socket socket) {
+            if (ec) {
+                std::cout << ec.message() << std::endl;
+                return;
+            }
+            std::cout << __LINE__  << " Accepted" << std::endl;
+            Serve(executor, acceptor, endpoint);
+            auto client_socket = std::make_shared<boost::asio::ip::tcp::socket>(std::move(socket));
+            HandleAccept(executor, client_socket, endpoint);
+        }
+    );
+}
+
+} // namespace ReverseProxy
+
+TEST(HttpProxy, run) {
+    std::cerr << "START\n";
+    boost::asio::io_context ioc;
+    boost::asio::ip::tcp::acceptor acceptor(ioc, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), 9090));
+    boost::asio::ip::tcp::endpoint ep(boost::asio::ip::address::from_string("127.0.0.1"), 8081);
+    ReverseProxy::Serve(ioc, acceptor, ep);
+    ioc.run();
+}
+
+
+
 #endif

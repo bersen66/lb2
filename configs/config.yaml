@@ -26,17 +26,7 @@ load_balancing:
 
 
   # Example config of least connections
-  algorithm: least_connections
-  endpoints:
-    - ip: "127.0.0.1"
-      port: 8081
-    - ip: "127.0.0.2"
-      port: 8082
-    - ip: "127.0.0.3"
-      port: 8083
-
-  # Example config of least response time
-  # algorithm: least_response_time
+  # algorithm: least_connections
   # endpoints:
   #   - ip: "127.0.0.1"
   #     port: 8081
@@ -44,6 +34,16 @@ load_balancing:
   #     port: 8082
   #   - ip: "127.0.0.3"
   #     port: 8083
+
+  # Example config of least response time
+  algorithm: least_response_time
+  endpoints:
+    - ip: "127.0.0.1"
+      port: 8081
+    - ip: "127.0.0.2"
+      port: 8082
+    - ip: "127.0.0.3"
+      port: 8083
 
   # Example config of round robin
   # algorithm: round_robin
