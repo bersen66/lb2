@@ -11,3 +11,4 @@ template <> struct fmt::formatter<boost::stacktrace::stacktrace> : ostream_forma
 template <> struct fmt::formatter<YAML::Node> : ostream_formatter{};
 template <> struct fmt::formatter<lb::tcp::Backend> : ostream_formatter{};
 template <> struct fmt::formatter<boost::beast::http::request<boost::beast::http::string_body>> : ostream_formatter{};
+template <> struct fmt::formatter<boost::beast::http::response<boost::beast::http::string_body>> : ostream_formatter{};

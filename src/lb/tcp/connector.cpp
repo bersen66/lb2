@@ -2,6 +2,8 @@
 #include <lb/tcp/connector.hpp>
 #include <lb/tcp/session.hpp>
 
+using SocketType = lb::tcp::HttpSession::SocketType;
+
 namespace lb::tcp {
 
 Connector::Connector(boost::asio::io_context& ctx, SelectorPtr selector)
@@ -10,38 +12,100 @@ Connector::Connector(boost::asio::io_context& ctx, SelectorPtr selector)
     , selector(selector)
 {}
 
-SessionPtr MakeSession(SelectorPtr& selector, boost::asio::ip::tcp::socket client_socket, boost::asio::ip::tcp::socket server_socket, Backend backend)
-{
 
-    switch(selector->Type()) {
-        case SelectorType::LEAST_CONNECTIONS: {
-            std::shared_ptr<LeastConnectionsSelector>  lc_selector = std::dynamic_pointer_cast<LeastConnectionsSelector>(selector);
-            return std::make_shared<LeastConnectionsHttpSession>(std::move(client_socket), std::move(server_socket), lc_selector, backend);
-        } break;
-        case SelectorType::LEAST_RESPONSE_TIME: {
-            std::shared_ptr<LeastResponseTimeSelector> lrt_selector = std::dynamic_pointer_cast<LeastResponseTimeSelector>(selector);
-            return std::make_shared<LeastResponseTimeHttpSession>(std::move(client_socket), std::move(server_socket), lrt_selector, backend);
-        } break;
-        default: {
-            return std::make_shared<HttpSession>(std::move(client_socket), std::move(server_socket));
-        }
+class LeastConnectionsCallbacks : public StateNotifier
+{
+public:
+    LeastConnectionsCallbacks(Backend backend, SelectorPtr selector)
+        : StateNotifier()
+        , backend(std::move(backend))
+        , selector(std::dynamic_pointer_cast<LeastConnectionsSelector>(selector))
+    {}
+
+    void OnConnect() override
+    {
+        selector->IncreaseConnectionCount(backend);
+    }
+
+    void OnDisconnect() override
+    {
+        selector->DecreaseConnectionCount(backend);
+    }
+
+    using StateNotifier::StateNotifier;
+private:
+    Backend backend;
+    std::shared_ptr<LeastConnectionsSelector> selector;
+};
+
+
+class LeastResponseTimeCallbacks : public StateNotifier
+{
+public:
+    using TimeType = decltype(std::chrono::high_resolution_clock::now());
+public:
+    LeastResponseTimeCallbacks(Backend backend, SelectorPtr selector)
+        : StateNotifier()
+        , backend(std::move(backend))
+        , selector(std::dynamic_pointer_cast<LeastResponseTimeSelector>(selector))
+    {}
+
+    void OnRequestSent() override
+    {
+        response_begin = std::chrono::high_resolution_clock::now();
+    }
+
+    void OnResponseReceive() override
+    {
+        response_end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<long, std::nano> duration = response_end - response_begin;
+        selector->AddResponseTime(backend, duration.count());
+    }
+
+    using StateNotifier::StateNotifier;
+private:
+    Backend backend;
+    std::shared_ptr<LeastResponseTimeSelector> selector;
+    TimeType response_begin;
+    TimeType response_end;
+};
+
+SessionPtr MakeSession(SelectorPtr& selector,
+                       SocketType client_socket,
+                       SocketType server_socket,
+                       Backend backend)
+{
+    switch (selector->Type()) {
+    case SelectorType::LEAST_CONNECTIONS:
+    {
+        return std::make_shared<HttpSession>(std::move(client_socket), std::move(server_socket),
+                                             std::make_unique<LeastConnectionsCallbacks>(std::move(backend), selector));
+    } break;
+
+    case SelectorType::LEAST_RESPONSE_TIME:
+    {
+        return std::make_shared<HttpSession>(std::move(client_socket), std::move(server_socket),
+                                             std::make_unique<LeastResponseTimeCallbacks>(std::move(backend), selector));
+    } break;
+    default:
+        return std::make_shared<HttpSession>(std::move(client_socket), std::move(server_socket));
     }
 }
 
 
-void Connector::MakeAndRunSession(boost::asio::ip::tcp::socket client_socket)
+void Connector::MakeAndRunSession(SocketType client_socket)
 {
-    // TODO: selection of backend
     DEBUG("In connector");
     Backend backend = selector->SelectBackend(client_socket.remote_endpoint());
 
     if (backend.IsIpEndpoint()) {
         DEBUG("Is ip endpoint");
-        auto server_socket = std::make_shared<boost::asio::ip::tcp::socket>(client_socket.get_executor());
+        auto server_socket = std::make_shared<SocketType>(client_socket.get_executor());
 
         server_socket->async_connect(
             backend.AsEndpoint(),
-            [this, server_socket, client_socket=std::move(client_socket), backend=std::move(backend)] (const boost::system::error_code& error) mutable
+            [this, server_socket, client_socket=std::move(client_socket), backend=std::move(backend)]
+            (const boost::system::error_code& error) mutable
             {
                 if (error) {
                     ERROR("{}", error.message());
@@ -56,7 +120,7 @@ void Connector::MakeAndRunSession(boost::asio::ip::tcp::socket client_socket)
             });
     } else if (backend.IsUrl()) {
         DEBUG("Is url");
-        auto server_socket = std::make_shared<boost::asio::ip::tcp::socket>(client_socket.get_executor());
+        auto server_socket = std::make_shared<SocketType>(client_socket.get_executor());
 
         const auto& url = backend.AsUrl();
         DEBUG("URL: hostname: {}, port: {}", url.Hostname(), url.Port());
