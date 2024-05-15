@@ -34,3 +34,5 @@
 build
 CMakeUserPresets.json
 .vscode
+tests/functional/__pycache__
+Testing

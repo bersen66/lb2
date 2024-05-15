@@ -152,6 +152,7 @@ SelectorPtr DetectSelector(const YAML::Node& node)
 // ============================ RoundRobinSelector ============================
 void RoundRobinSelector::Configure(const YAML::Node &balancing_node)
 {
+    INFO("Configuring RoundRobinSelector");
     if (!balancing_node["endpoints"].IsDefined()) {
         STACKTRACE("Round-robin endpoints node is missed");
     }
@@ -219,6 +220,7 @@ std::size_t ReadWeight(const YAML::Node& ep)
 
 void WeightedRoundRobinSelector::Configure(const YAML::Node &balancing_node)
 {
+    INFO("Configuring WeightedRoundRobinSelector");
     if (!balancing_node["endpoints"].IsDefined()) {
         STACKTRACE("Weighted-round-robin endpoints node is missed");
     }
@@ -314,6 +316,7 @@ void WeightedRoundRobinSelector::AdvanceCounter()
 
 void IpHashSelector::Configure(const YAML::Node& balancing_node)
 {
+    INFO("Configuring IpHashSelector");
     if (!balancing_node["endpoints"].IsDefined()) {
         STACKTRACE("Ip-hash endpoints node is missed");
     }
@@ -375,7 +378,10 @@ SelectorType IpHashSelector::Type() const
 
 BackendCHTraits::HashType BackendCHTraits::GetHash(const Backend& backend)
 {
-    return std::hash<std::string>{}(backend.ToString());
+
+    static std::hash<std::string> hash{};
+    std::size_t res = hash(backend.ToString());
+    return res;
 }
 
 std::vector<BackendCHTraits::HashType>
@@ -398,6 +404,7 @@ ConsistentHashSelector::ConsistentHashSelector(std::size_t spawn_replicas)
 
 void ConsistentHashSelector::Configure(const YAML::Node &balancing_node)
 {
+    INFO("Configuring ConsistentHashSelector");
     if (!balancing_node["endpoints"].IsDefined()) {
         STACKTRACE("Consistent hash endpoints node is missed");
     }
@@ -429,6 +436,7 @@ Backend ConsistentHashSelector::SelectBackend(const boost::asio::ip::tcp::endpoi
 {
     boost::mutex::scoped_lock lock(mutex_);
     Backend result = ring_.SelectNode(client);
+    DEBUG("Selected: {}", result);
     return result;
 }
 
@@ -436,6 +444,7 @@ void ConsistentHashSelector::ExcludeBackend(const Backend& backend)
 {
     boost::mutex::scoped_lock lock(mutex_);
     ring_.EraseNode(backend);
+    DEBUG("Excluded: {}", backend);
     if (ring_.Empty()) {
         EXCEPTION("All backends are excluded!");
     }
@@ -449,6 +458,7 @@ SelectorType ConsistentHashSelector::Type() const
 // ============================ LeastConnectionsSelector ============================
 
 void LeastConnectionsSelector::Configure(const YAML::Node& config) {
+    INFO("Configuring LeastConnectionsSelector");
     if (!config["endpoints"].IsDefined()) {
         STACKTRACE("Least connections endpoints node is missed");
     }
@@ -546,6 +556,7 @@ void LeastConnectionsSelector::DecreaseConnectionCount(const Backend& backend)
 
 void LeastResponseTimeSelector::Configure(const YAML::Node& config)
 {
+    INFO("Configuring LeastResponseTimeSelector");
     if (!config["endpoints"].IsDefined()) {
         STACKTRACE("Least response time endpoints node is missed");
     }

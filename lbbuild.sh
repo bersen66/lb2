@@ -9,7 +9,7 @@ function BuildApp() {
     conan install . --output-folder=build --build=missing --settings=build_type=$BUILD_TYPE
     cd build
     cmake .. -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake
-    cmake --build . -j 4
+    cmake --build . -j 3
 }
 
 if ! command -v conan &> /dev/null

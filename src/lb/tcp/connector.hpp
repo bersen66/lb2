@@ -21,8 +21,7 @@ public:
     Connector& operator=(Connector&&) = delete;
 
     void MakeAndRunSession(boost::asio::ip::tcp::socket client);
-private:
-    void HandleAsyncResolve(const boost::system::error_code& ec, ResolverResults results, boost::asio::ip::tcp::socket client_socket);
+
 private:
     boost::asio::io_context& ioc;
     boost::asio::ip::tcp::resolver resolver;

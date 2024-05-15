@@ -3,6 +3,7 @@
 #include <map>
 #include <list>
 #include <stdexcept>
+#include <lb/logging.hpp>
 
 namespace pumba {
 
@@ -11,7 +12,7 @@ class ConsistentHashingRouter {
 public:
 
     using HashType = typename HashTraits::HashType;
-    using NodeIt = typename std::list<NodeType>::iterator;
+    using NodeIt   = typename std::list<NodeType>::iterator;
 
 public:
 
@@ -36,6 +37,7 @@ public:
 
     void EraseNode(NodeType&& node) {
         if (auto it = ring_.find(HashTraits::GetHash(node)); it != ring_.end()) {
+            DEBUG("Erase node: {}", node);
             NodeIt node_it = it->second;
             EraseReplicasOf(node_it);
             physical_nodes_.erase(node_it);
@@ -93,7 +95,8 @@ private:
 
     void SpawnReplicas(NodeIt physical_node)
     {
-        for (const HashType& hash : HashTraits::Replicate(*physical_node, replicas_)) {
+        ring_[HashTraits::GetHash(*physical_node)] = physical_node;
+        for (const HashType& hash : HashTraits::Replicate(*physical_node, replicas_-1)) {
             ring_[hash] = physical_node;
         }
     }

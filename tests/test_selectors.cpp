@@ -318,3 +318,30 @@ endpoints:
     ASSERT_EQ(selector.SelectBackend(notused), b3);
     ASSERT_EQ(selector.SelectBackend(notused), b3);
 }
+
+
+TEST(ConsistentHash, basicUsage)
+{
+    YAML::Node selector_config = YAML::Load(
+R"(algorithm: consistent_hash
+endpoints:
+  - ip: 127.0.0.1
+    port: 8081
+  - ip: 127.0.0.2
+    port: 8082
+  - ip: 127.0.0.3
+    port: 8083
+)");
+
+    lb::tcp::ConsistentHashSelector selector;
+    selector.Configure(selector_config);
+    boost::asio::ip::tcp::endpoint notused(boost::asio::ip::address::from_string("127.0.0.1"), 8080);
+    auto b1 = lb::tcp::Backend("127.0.0.1", 8081);
+    auto b2 = lb::tcp::Backend("127.0.0.2", 8082);
+    auto b3 = lb::tcp::Backend("127.0.0.3", 8083);
+
+    selector.ExcludeBackend(b3);
+    selector.ExcludeBackend(b2);
+    ASSERT_THROW(selector.ExcludeBackend(b1), std::runtime_error); // No backend left
+
+}

@@ -5,51 +5,58 @@
 
 #include <atomic>
 
+
+
 namespace lb {
 
 namespace tcp {
 
-// ================================= HttpSession =================================
-HttpSession::HttpSession(boost::asio::ip::tcp::socket client,
-                 boost::asio::ip::tcp::socket server)
+HttpSession::HttpSession(SocketType client_socket, SocketType server_socket, VisitorPtr visitor)
     : BasicSession()
-    , client_socket(std::move(client))
-    , server_socket(std::move(server))
+    , client_stream_(std::move(client_socket))
+    , server_stream_(std::move(server_socket))
     , id(generateId())
+    , visitor_(std::move(visitor))
 {
-    cb.prepare(BUFFER_SIZE);
-    sb.prepare(BUFFER_SIZE);
-    DEBUG("HttpSession id:{} constructed", id);
+    DEBUG("HttpSession id:{} created", id);
 }
 
 void HttpSession::Run()
 {
+    if (visitor_) {
+        visitor_->OnConnect();
+    }
     ClientRead();
-    ServerRead();
 }
 
-bool NeedErrorLogging(const boost::system::error_code& ec)
+bool NeedErrorLogging(const HttpSession::ErrorCode& ec)
 {
     return ec != boost::asio::error::eof
         && ec != boost::beast::http::error::end_of_stream
         && ec != boost::asio::error::operation_aborted;
 }
 
-// Client->Server communication callbacks-chain
+
 void HttpSession::ClientRead()
 {
-    cr.clear();
-    boost::beast::http::async_read(
-        client_socket,
-        cb,
-        cr,
-        [self=shared_from_this()] (const boost::system::error_code& ec, std::size_t length) {
+    namespace http = boost::beast::http;
+
+    client_buffer_.clear();
+    server_buffer_.clear();
+    client_request_.clear();
+    server_response_.clear();
+
+    http::async_read(
+        client_stream_,
+        client_buffer_,
+        client_request_,
+        [self=shared_from_this()](ErrorCode ec, std::size_t length){
             self->HandleClientRead(ec, length);
         }
     );
 }
 
-void HttpSession::HandleClientRead(boost::system::error_code ec, std::size_t length)
+void HttpSession::HandleClientRead(ErrorCode ec, std::size_t length)
 {
     if (ec) {
         if (NeedErrorLogging(ec)) {
@@ -58,22 +65,27 @@ void HttpSession::HandleClientRead(boost::system::error_code ec, std::size_t len
         Cancel();
         return;
     }
-    //DEBUG("sid:{} client-msg:{}", id, client_buffer);
+
+    if (visitor_) {
+        visitor_->OnRequestReceive();
+    }
     SendToServer();
 }
 
 void HttpSession::SendToServer()
 {
-    boost::beast::http::async_write(
-        server_socket,
-        cr,
-        [self=shared_from_this()](boost::system::error_code ec, std::size_t length) {
-           self->HandleSendToServer(ec, length);
+    namespace http = boost::beast::http;
+
+    http::async_write(
+        server_stream_,
+        client_request_,
+        [self=shared_from_this()](ErrorCode ec, std::size_t length){
+            self->HandleSendToServer(ec, length);
         });
 }
 
 
-void HttpSession::HandleSendToServer(boost::system::error_code ec, std::size_t length)
+void HttpSession::HandleSendToServer(ErrorCode ec, std::size_t length)
 {
     if (ec) {
         if (NeedErrorLogging(ec)) {
@@ -82,25 +94,28 @@ void HttpSession::HandleSendToServer(boost::system::error_code ec, std::size_t l
         Cancel();
         return;
     }
-
-    ClientRead();
+    DEBUG("sid: {} sent to server", id);
+    if (visitor_) {
+        visitor_->OnRequestSent();
+    }
+    ServerRead();
 }
 
-// Server->Client communication callbacks-chain
+
 void HttpSession::ServerRead()
 {
-    sr.clear();
-    boost::beast::http::async_read(
-        server_socket,
-        sb,
-        sr,
-        [self=shared_from_this()] (const boost::system::error_code& ec, std::size_t length) {
+    namespace http = boost::beast::http;
+    http::async_read(
+        server_stream_,
+        server_buffer_,
+        server_response_,
+        [self=shared_from_this()](ErrorCode ec, std::size_t length){
             self->HandleServerRead(ec, length);
         }
     );
 }
 
-void HttpSession::HandleServerRead(boost::system::error_code ec, std::size_t length)
+void HttpSession::HandleServerRead(ErrorCode ec, std::size_t length)
 {
     if (ec) {
         if (NeedErrorLogging(ec)) {
@@ -108,31 +123,42 @@ void HttpSession::HandleServerRead(boost::system::error_code ec, std::size_t len
         }
         Cancel();
         return;
+    }
+    if (visitor_) {
+        visitor_->OnResponseReceive();
     }
     SendToClient();
 }
 
 void HttpSession::SendToClient()
 {
-    boost::beast::http::async_write(client_socket, sr,
-    [self=shared_from_this()](boost::system::error_code ec, std::size_t length){
-        self->HandleSendToClient(ec, length);
-    });
+    namespace http = boost::beast::http;
+    http::async_write(
+        client_stream_,
+        server_response_,
+        [self=shared_from_this()](ErrorCode ec, std::size_t length){
+            self->HandleSendToClient(ec, length);
+        }
+    );
 }
 
-void HttpSession::HandleSendToClient(boost::system::error_code ec, std::size_t length) {
+void HttpSession::HandleSendToClient(ErrorCode ec, std::size_t length) {
     if (ec) {
         if (NeedErrorLogging(ec)) {
             SERROR("sid:{} {}", id, ec.message());
         }
         Cancel();
+        return;
     }
-    ServerRead();
+    if (visitor_) {
+        visitor_->OnResponseSent();
+    }
+    ClientRead();
 }
 
-void CloseSocket(boost::asio::ip::tcp::socket& socket)
+void CloseSocket(HttpSession::SocketType& socket)
 {
-    boost::system::error_code ec;
+    HttpSession::ErrorCode ec;
     if (socket.is_open()) {
         socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
         if (!ec) {
@@ -144,11 +170,14 @@ void CloseSocket(boost::asio::ip::tcp::socket& socket)
     }
 }
 
- // Cancel all unfinished async operartions on boths sockets
+
 void HttpSession::Cancel()
 {
-    CloseSocket(client_socket);
-    CloseSocket(server_socket);
+    CloseSocket(client_stream_.socket());
+    CloseSocket(server_stream_.socket());
+    if (visitor_) {
+        visitor_->OnDisconnect();
+    }
 }
 
 HttpSession::~HttpSession()
@@ -168,300 +197,6 @@ const HttpSession::IdType& HttpSession::Id() const
     return id;
 }
 
-
-// ================================= LeastConnectionsHttpSession =================================
-LeastConnectionsHttpSession::LeastConnectionsHttpSession(boost::asio::ip::tcp::socket client,
-                                                         boost::asio::ip::tcp::socket server,
-                                                         SelectorType selector, Backend server_backend)
-    : BasicSession()
-    , client_socket(std::move(client))
-    , server_socket(std::move(server))
-    , id(generateId())
-    , lc_selector(std::move(selector))
-    , server_backend(std::move(server_backend))
-{
-    cb.prepare(BUFFER_SIZE);
-    sb.prepare(BUFFER_SIZE);
-    DEBUG("LeastConnectionsHttpSession id:{} constructed", id);
-    // selector->IncreaseConnectionCount(server_backend);
-}
-
-void LeastConnectionsHttpSession::Run()
-{
-    ClientRead();
-    ServerRead();
-}
-
-
-// Client->Server communication callbacks-chain
-void LeastConnectionsHttpSession::ClientRead()
-{
-    cr.clear();
-    boost::beast::http::async_read(
-        client_socket,
-        cb,
-        cr,
-        [self=shared_from_this()] (const boost::system::error_code& ec, std::size_t length) {
-            self->HandleClientRead(ec, length);
-        }
-    );
-}
-
-void LeastConnectionsHttpSession::HandleClientRead(boost::system::error_code ec, std::size_t length)
-{
-    if (ec) {
-        if (NeedErrorLogging(ec)) {
-            SERROR("sid:{} {}", id, ec.message());
-        }
-        Cancel();
-        return;
-    }
-    //DEBUG("sid:{} client-msg:{}", id, client_buffer);
-    SendToServer();
-}
-
-void LeastConnectionsHttpSession::SendToServer()
-{
-    boost::beast::http::async_write(
-        server_socket,
-        cr,
-        [self=shared_from_this()](boost::system::error_code ec, std::size_t length) {
-           self->HandleSendToServer(ec, length);
-        });
-}
-
-
-void LeastConnectionsHttpSession::HandleSendToServer(boost::system::error_code ec, std::size_t length)
-{
-    if (ec) {
-        if (NeedErrorLogging(ec)) {
-            SERROR("sid:{} {}", id, ec.message());
-        }
-        Cancel();
-        return;
-    }
-
-    ClientRead();
-}
-
-// Server->Client communication callbacks-chain
-void LeastConnectionsHttpSession::ServerRead()
-{
-    sr.clear();
-    boost::beast::http::async_read(
-        server_socket,
-        sb,
-        sr,
-        [self=shared_from_this()] (const boost::system::error_code& ec, std::size_t length) {
-            self->HandleServerRead(ec, length);
-        }
-    );
-}
-
-void LeastConnectionsHttpSession::HandleServerRead(boost::system::error_code ec, std::size_t length)
-{
-    if (ec) {
-        if (NeedErrorLogging(ec)) {
-            SERROR("sid:{} {}", id, ec.message());
-        }
-        Cancel();
-        return;
-    }
-    SendToClient();
-}
-
-void LeastConnectionsHttpSession::SendToClient()
-{
-    boost::beast::http::async_write(client_socket, sr,
-    [self=shared_from_this()](boost::system::error_code ec, std::size_t length){
-        self->HandleSendToClient(ec, length);
-    });
-}
-
-void LeastConnectionsHttpSession::HandleSendToClient(boost::system::error_code ec, std::size_t length) {
-    if (ec) {
-        if (NeedErrorLogging(ec)) {
-            SERROR("sid:{} {}", id, ec.message());
-        }
-        Cancel();
-    }
-    ServerRead();
-}
-
-void LeastConnectionsHttpSession::Cancel()
-{
-    CloseSocket(client_socket);
-    CloseSocket(server_socket);
-    lc_selector->DecreaseConnectionCount(server_backend);
-}
-
-
-LeastConnectionsHttpSession::IdType LeastConnectionsHttpSession::generateId()
-{
-    static std::atomic<IdType> id = 0;
-    LeastConnectionsHttpSession::IdType result = id.fetch_add(1, std::memory_order_relaxed);
-    return result;
-}
-
-const LeastConnectionsHttpSession::IdType& LeastConnectionsHttpSession::Id() const
-{
-    return id;
-}
-
-LeastConnectionsHttpSession::~LeastConnectionsHttpSession()
-{
-    Cancel();
-    DEBUG("LeastConnectionsHttpSession id:{} destructed", id);
-}
-
-
-// ================================= LeastResponseTimeHttpSession =================================
-LeastResponseTimeHttpSession::LeastResponseTimeHttpSession(boost::asio::ip::tcp::socket client,
-                                                           boost::asio::ip::tcp::socket server,
-                                                           SelectorType selector, Backend server_backend)
-    : BasicSession()
-    , client_socket(std::move(client))
-    , server_socket(std::move(server))
-    , id(generateId())
-    , lrt_selector(std::move(selector))
-    , server_backend(std::move(server_backend))
-{
-    cb.prepare(BUFFER_SIZE);
-    sb.prepare(BUFFER_SIZE);
-    DEBUG("LeastConnectionsHttpSession id:{} constructed", id);
-    // selector->IncreaseConnectionCount(server_backend);
-}
-
-void LeastResponseTimeHttpSession::Run()
-{
-    ClientRead();
-    ServerRead();
-}
-
-
-// Client->Server communication callbacks-chain
-void LeastResponseTimeHttpSession::ClientRead()
-{
-    cr.clear();
-    boost::beast::http::async_read(
-        client_socket,
-        cb,
-        cr,
-        [self=shared_from_this()] (const boost::system::error_code& ec, std::size_t length) {
-            self->HandleClientRead(ec, length);
-        }
-    );
-}
-
-void LeastResponseTimeHttpSession::HandleClientRead(boost::system::error_code ec, std::size_t length)
-{
-    if (ec) {
-        if (NeedErrorLogging(ec)) {
-            SERROR("sid:{} {}", id, ec.message());
-        }
-        Cancel();
-        return;
-    }
-    //DEBUG("sid:{} client-msg:{}", id, client_buffer);
-    SendToServer();
-}
-
-void LeastResponseTimeHttpSession::SendToServer()
-{
-    boost::beast::http::async_write(
-        server_socket,
-        cr,
-        [self=shared_from_this()](boost::system::error_code ec, std::size_t length) {
-           self->HandleSendToServer(ec, length);
-        });
-}
-
-
-void LeastResponseTimeHttpSession::HandleSendToServer(boost::system::error_code ec, std::size_t length)
-{
-    if (ec) {
-        if (NeedErrorLogging(ec)) {
-            SERROR("sid:{} {}", id, ec.message());
-        }
-        Cancel();
-        return;
-    }
-
-    ClientRead();
-}
-
-// Server->Client communication callbacks-chain
-void LeastResponseTimeHttpSession::ServerRead()
-{
-    sr.clear();
-    response_begin = boost::posix_time::microsec_clock::local_time();
-    boost::beast::http::async_read(
-        server_socket,
-        sb,
-        sr,
-        [self=shared_from_this()] (const boost::system::error_code& ec, std::size_t length) {
-            self->HandleServerRead(ec, length);
-        }
-    );
-}
-
-void LeastResponseTimeHttpSession::HandleServerRead(boost::system::error_code ec, std::size_t length)
-{
-    if (ec) {
-        if (NeedErrorLogging(ec)) {
-            SERROR("sid:{} {}", id, ec.message());
-        }
-        Cancel();
-        return;
-    }
-    response_end = boost::posix_time::microsec_clock::local_time();
-    long response_time = (response_end - response_begin).total_microseconds();
-    lrt_selector->AddResponseTime(server_backend, response_time);
-    SendToClient();
-}
-
-void LeastResponseTimeHttpSession::SendToClient()
-{
-    boost::beast::http::async_write(client_socket, sr,
-    [self=shared_from_this()](boost::system::error_code ec, std::size_t length){
-        self->HandleSendToClient(ec, length);
-    });
-}
-
-void LeastResponseTimeHttpSession::HandleSendToClient(boost::system::error_code ec, std::size_t length) {
-    if (ec) {
-        if (NeedErrorLogging(ec)) {
-            SERROR("sid:{} {}", id, ec.message());
-        }
-        Cancel();
-    }
-    ServerRead();
-}
-
-void LeastResponseTimeHttpSession::Cancel()
-{
-    CloseSocket(client_socket);
-    CloseSocket(server_socket);
-}
-
-
-LeastResponseTimeHttpSession::IdType LeastResponseTimeHttpSession::generateId()
-{
-    static std::atomic<IdType> id = 0;
-    LeastResponseTimeHttpSession::IdType result = id.fetch_add(1, std::memory_order_relaxed);
-    return result;
-}
-
-const LeastResponseTimeHttpSession::IdType& LeastResponseTimeHttpSession::Id() const
-{
-    return id;
-}
-
-LeastResponseTimeHttpSession::~LeastResponseTimeHttpSession()
-{
-    Cancel();
-    DEBUG("LeastConnectionsHttpSession id:{} destructed", id);
-}
 } // namespace tcp
 
 } // namespace lb
